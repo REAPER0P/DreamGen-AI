@@ -11,32 +11,40 @@ export const enhancePrompt = async (
   if (!prompt.trim()) return prompt;
   
   try {
-    const response = await fetch("/api/enhance", {
-      method: "POST",
+    const contextParts = [
+      styleSuffix ? `Style preference: ${styleSuffix}` : '',
+      mood && mood !== 'Default' ? `Mood: ${mood}` : '',
+      lighting && lighting !== 'Default' ? `Lighting: ${lighting}` : '',
+      colorTone && colorTone !== 'Default' ? `Color Tone: ${colorTone}` : '',
+      aspectRatio ? `Aspect Ratio: ${aspectRatio}` : ''
+    ].filter(Boolean).join('. ');
+
+    const systemPrompt = `You are an expert image generation prompt engineer. The user has provided a base prompt and selected some specific styles and settings. 
+Your task is to powerfully enhance the base prompt to be highly descriptive, artistic, and effective for a text-to-image diffusion model. Ensure high creativity, variety, and uniqueness in your responses. Do NOT return the exact same prompt for the same keyword.
+${contextParts ? `CRITICAL INSTRUCTION: You MUST naturally and creatively weave the following selected settings into the narrative of the prompt to enforce them strongly: [${contextParts}].` : ''}
+Reply ONLY with the final enhanced prompt text, maximum 2 to 3 very detailed sentences long. Do not include any conversational filler, intro, or outro. Just the prompt itself.`;
+
+    const response = await fetch('https://text.pollinations.ai/openai', {
+      method: 'POST',
       headers: {
-        "Content-Type": "application/json",
+        'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ prompt, styleSuffix, mood, lighting, colorTone, aspectRatio }),
+      body: JSON.stringify({
+        messages: [
+          { role: 'system', content: systemPrompt + `\n\n[Internal Timestamp: ${Date.now()}-${Math.random()}]` },
+          { role: 'user', content: prompt }
+        ],
+        temperature: 0.9,
+        seed: Math.floor(Math.random() * 100000)
+      })
     });
     
     if (!response.ok) {
-       const errText = await response.text();
-       console.error("Text API Error", errText);
-       
-       let errMsg = "Failed to enhance prompt";
-       try {
-         const errJson = JSON.parse(errText);
-         if (errJson.error) errMsg = errJson.error;
-       } catch (e) {}
-
-       if (response.status === 401 || !prompt) {
-         throw new Error(errMsg);
-       }
        return prompt;
     }
     
     const result = await response.json();
-    return result.prompt || prompt;
+    return (result && result.choices && result.choices[0]?.message?.content?.trim()) || prompt;
   } catch (error) {
     console.error("Prompt enhancement failed:", error);
     return prompt;
